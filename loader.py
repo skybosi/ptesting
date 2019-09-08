@@ -5,8 +5,7 @@ import sys
 import error
 
 '''
-        加载某一路径的所有python
-        实现动态加载py
+    加载某一路径的所有python, 实现动态加载py
 '''
 
 black_list = {
@@ -42,35 +41,31 @@ def loading(path):
                 continue
             relPath = os.path.relpath(absPath)
             m = os.path.splitext(os.path.basename(relPath))[0]
-            m2 = os.path.splitext(os.path.basename(relPath.replace("/", ".").replace("\\", ".")))[0]
-            #m = os.path.splitext(os.path.basename(absPath))[0]
-            print(relPath, m2, m)
-            print(m2, "fromlist=", m)
-            a = __import__(m2, fromlist=[m])
+            a = __import__(m)
             print(a)
             a_dict = a.__dict__
             module_info = {
-                "_func" : [],
-                "_vars" : [],
-                "_dict" : [],
-                "_none" : [],
+                "_func" : {},
+                "_vars" : {},
+                "_dict" : {},
+                "_none" : {},
                 "_file" : absPath,
                 "_module": a
             }
             for i in a_dict:
                 if -1 != str(type(a_dict[i])).find("function"): # 函数
-                   module_info["_func"].append(a_dict[i])
+                   module_info["_func"][i] = a_dict[i]
                 elif -1 != str(type(a_dict[i])).find("dict"): # 字典
-                   module_info["_dict"].append(i)
+                   module_info["_dict"][i] = a_dict[i]
                 elif -1 != str(type(a_dict[i])).find("str"):  # 变量
-                   module_info["_vars"].append(i)
+                   module_info["_vars"][i] = a_dict[i]
                 elif -1 != str(type(a_dict[i])).find("NoneType"): # 无类型
-                   module_info["_none"].append(i)
+                   module_info["_none"][i] = a_dict[i]
                 else:
                    pass
             file_tb.append(module_info)
         else:
-            #pass
+            sys.path.append(absPath)
             if not file.startswith('.'):
                 loading(absPath)
             #raise error.Error('禁止递归加载！你是不是傻！！！')
