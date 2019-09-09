@@ -17,6 +17,8 @@ black_list = {
     "request.pyc" : 1,
     "__init__.py" : 1,
     "__init__.pyc" : 1,
+    "flower.py": 1,
+    "flower.pyc": 1,
 }
 
 file_tb = []
@@ -24,14 +26,12 @@ file_tb = []
 def loading(path):
     # 获取目录下的文件与目录列表
     pathList = os.listdir(path)
-    currpath = os.path.abspath('.')
     # 遍历列表中的文件名
     for file in pathList:
         # 使用join函数对路径进行拼接，然后构成绝对路径
         if black_list.get(file) or \
             re.match(".*\.pyc$", file) or \
             file.startswith('.'):
-            print(file)
             continue
         absPath = os.path.join(path, file)
         # 通过绝对路径判断是否是文件
@@ -42,7 +42,7 @@ def loading(path):
             relPath = os.path.relpath(absPath)
             m = os.path.splitext(os.path.basename(relPath))[0]
             a = __import__(m)
-            print(a)
+            # print(a)
             a_dict = a.__dict__
             module_info = {
                 "_func" : {},
