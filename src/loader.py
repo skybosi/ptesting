@@ -37,14 +37,17 @@ def loading(path):
     elif os.sep == '/':
         path = path.replace('\\', '/')
     path_tb = path.split(os.sep)
-    if '.' == path_tb[0]:
-        path = cur_path + os.sep + path_tb[1]
+    # 绝对路径
+    if os.path.isabs(path):
+        path = path
+    elif '.' == path_tb[0]:
+        path = currpath + os.sep + path_tb[1]
     elif '..' == path_tb[0]:
         path = parent_path + os.sep + path_tb[1]
     elif len(path_tb) <= 1:
         path = currpath + os.sep + path_tb[0]
     else:
-        path = cur_path + os.sep + path_tb[1]
+        path = currpath + os.sep + path_tb[1]
     print(cur_path, currpath, path, parent_path, parentpath)
     # 获取目录下的文件与目录列表
     try:
@@ -56,21 +59,21 @@ def loading(path):
         print(os.sys.path)
     # 遍历列表中的文件名
     for file in pathList:
-        # 使用join函数对路径进行拼接，然后构成绝对路径
-        if black_list.get(file) or not file.endswith('.py') or file.startswith('.'):
-            continue
-        if not os.path.exists(path + os.sep + '__init__.py'):
-            fd = open(path + os.sep + '__init__.py', mode='w')
-            fd.close()
         absPath = os.path.join(path, file)
         # 通过绝对路径判断是否是文件
         # 如果是文件，直接输出文件名
         if os.path.isfile(absPath):
+            # 使用join函数对路径进行拼接，然后构成绝对路径
+            if black_list.get(file) or not file.endswith('.py') or file.startswith('.'):
+                continue
+            if not os.path.exists(path + os.sep + '__init__.py'):
+                fd = open(path + os.sep + '__init__.py', mode='w')
+                fd.close()
             relPath = os.path.relpath(absPath)
             module_tb = relPath.split(os.sep)
-            module_dir = module_tb[0]
-            module_name = module_tb[1].split('.')[0]
-            module_path = module_dir + '.' + module_name
+            # module_dir = module_tb[0]
+            module_name = module_tb[-1].split('.')[0]
+            module_path = '.'.join(module_tb[:-1]) + '.' + module_name
             # print("module_tb:", module_tb)
             #module_name = os.path.splitext(os.path.basename(relPath))[0]
             #module_path = os.path.splitext(os.path.basename(relPath.replace(os.sep, ".")))[0]
@@ -103,7 +106,7 @@ def loading(path):
             file_tb.append(module_info)
         else:
             # pass
-            if not file.startswith('.'):
+            if not file.startswith('.') and not file.startswith('__'):
                 loading(absPath)
             #raise error.Error('禁止递归加载！你是不是傻！！！')
     return file_tb
