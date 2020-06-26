@@ -3,11 +3,11 @@ global var2
 
 
 def deep_test_hello(n, m):
-    ''' count, 10, 100, 4, 4 '''
+    ''' count, 2, 10, 4, 4 '''
     print("deep hello ptesting", n)
 
 
-def deep_test_world():
+def deep_test_world(n):
     ''' unit, 1, 1 '''
     print("deep world ptesting")
 

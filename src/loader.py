@@ -107,7 +107,7 @@ def loadModule(path, filename):
         elif hasattr(a_dict[i], "__call__"):  # 函数
             func = a_dict[i]
             varnames = func.__code__.co_varnames
-            if a_dict[i].__doc__:
+            if not a_dict[i].__doc__:
                 a_dict[i].__doc__ = ''' unit, ''' + str(varnames)
             func = analysisNotes(a_dict[i].__doc__, i, a_dict[i], *varnames)
             module_info["_func"].append(func)
@@ -126,24 +126,28 @@ def analysisNotes(input, funName, func, *dargs, **dkargs):
         return None
     input_tb = input.split(',')
     input_tb = list(map(lambda x: x.strip(), input_tb))
+    args_num = len(dargs)
     # 单元测试
     if 'unit' == input_tb[0].lower():
         inargs = input_tb[1:]
         # 必须参数检测
-        if len(dargs) > len(inargs):
-            raise TypeError("Unit Testing: " + funName + ": Must " + str(len(dargs)) +
+        if args_num > len(inargs):
+            raise TypeError("Unit Testing: " + funName + ": Must " + str(args_num) +
                             " Args, But Get " + str(len(inargs)))
 
-        def call_realfunc(*dargs, **dkargs):
-            dargs = inargs
-            func(*dargs, **dkargs)
+        def call_realfunc(*args, **kargs):
+            if 0 != args_num:
+                dargs = inargs[:args_num]
+                func(*dargs, **dkargs)
+            else:
+                func()
         return call_realfunc
     # 并发测试
     elif 'count' == input_tb[0].lower():
         inargs = input_tb[3:]
         # 必须参数检测
-        if len(dargs) > len(inargs):
-            raise TypeError("Count Testing: " + funName + ": Must " + str(len(dargs)) +
+        if args_num > len(inargs):
+            raise TypeError("Count Testing: " + funName + ": Must " + str(args_num) +
                             " Args, But Get " + str(len(inargs)))
 
         def call_realfunc(*args, **kargs):
