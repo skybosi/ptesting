@@ -66,14 +66,14 @@ def _initPath(path):
     if os.path.isabs(path):
         path = path
     elif '.' == path_tb[0]:
-        path = currpath + os.sep + path_tb[1]
+        path = currpath + os.sep + os.sep.join(path_tb[1:])
     elif '..' == path_tb[0]:
-        path = parent_path + os.sep + path_tb[1]
-    elif len(path_tb) <= 1:
-        path = currpath + os.sep + path_tb[0]
+        path = parent_path + os.sep + os.sep.join(path_tb[1:])
+    elif not path_tb[0].startswith(os.sep):
+        path = currpath + os.sep + os.sep.join(path_tb)
     else:
-        path = currpath + os.sep + path_tb[1]
-    # debug(cur_path, currpath, path, parent_path, parentpath)
+        raise IOError("Invalid path: ", path)
+    debug(cur_path, currpath, path, parent_path, parentpath)
     return path
 
 
@@ -213,18 +213,21 @@ def _analysisNotes(ctx, input, funName, func, *dargs, **dkargs):
         raise TypeError("Unkonw Testing Type: " + funName)
 
 
-def loading(path):
+def loading(path, level, cur):
     '''
         加载某一路径的所有python
         实现动态加载py
         @path: 待加载的路径，支持相对路径，绝对路径
     '''
+    cur = cur + 1
+    if level > 0 and cur > level:
+        return None
     path = _initPath(path)
     # 获取目录下的文件与目录列表
     try:
         pathList = os.listdir(path)
     except IOError:
-        return {}
+        raise IOError("Invalid path: ", path)
     finally:
         os.sys.path.append(path)
         debug(os.sys.path)
@@ -238,15 +241,17 @@ def loading(path):
                 file_tb.append(module_info)
         else:
             if not filename.startswith('.') and not filename.startswith('__'):
-                loading(absPath)
+                loading(absPath, level, cur)
     return file_tb
 
 
 def _parse_args():
     """Parse the args."""
     parser = argparse.ArgumentParser(description='A simple test tool')
-    parser.add_argument('--path', type=str, required=False, default="./",
+    parser.add_argument('-p', '--path', type=str, required=False, default="./",
                         help='test case path')
+    parser.add_argument('-l', '--level', type=int, required=False, default=-1,
+                        help='load module dir level')
     return parser.parse_args()
 
 
@@ -254,8 +259,11 @@ if __name__ == '__main__':
     args = _parse_args()
     # print(locals()
     # print(globals())
-    lib_tb = loading(args.path)
-    # print(lib_tb)
-    for lib in lib_tb:
-        for i in lib["_func"]:
-            i()
+    try:
+        lib_tb = loading(args.path, args.level, 0)
+        # debug(lib_tb)
+        for lib in lib_tb:
+            for i in lib["_func"]:
+                i()
+    except Exception:
+        print("Load module from {} failed ...".format(args.path))
