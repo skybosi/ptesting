@@ -7,7 +7,6 @@ Copyright 2020 skybosi, https://github.com/skybosi/ptesting
 
 import argparse
 import importlib
-import error
 import sys
 import re
 import os
@@ -29,17 +28,16 @@ def debug(*args):
 black_list = {
     "loader.py": 1,
     "loader.pyc": 1,
-    "error.py": 1,
-    "error.pyc": 1,
     "request.py": 1,
     "request.pyc": 1,
     "__init__.py": 1,
     "__init__.pyc": 1,
 }
 
-COPYLEFT = """A simple test tool, Named Ptesting
+COPYLEFT = """\nA simple test tool, Named Ptesting
 This is Ptesting, Version 0.1
-Copyright 2020 skybosi, https://github.com/skybosi/ptesting\n
+Copyright 2020 skybosi, https://github.com/skybosi/ptesting
+-----------------------------------------------------------
 """
 TEST_START = COPYLEFT + '{}.{} is Testing ... {} \n{} ======START-PTESTING====== {}'
 TEST_END = '{} =======END-PTESTING======= {}\n{}.{} is Tested, Use {} ms'
@@ -113,13 +111,60 @@ def _loadModule(path, filename):
             func = a_dict[i]
             varnames = func.__code__.co_varnames
             if not a_dict[i].__doc__:
-                a_dict[i].__doc__ = ''' unit '''  # + str(len(varnames))
+                a_dict[i].__doc__ = ''' unit; '''  # + str(len(varnames))
             func = _analysisNotes(
                 a_dict, a_dict[i].__doc__, i, a_dict[i], *varnames)
             module_info["_func"].append(func)
         else:
             module_info["_vars"].append({i: a_dict[i]})
     return module_info
+
+
+def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
+    '''
+        生成call function
+        # unit test is a simple case COUNT type, just like c:1 n:1
+        # def call_realfunc():
+        #     start_time = int(round(time.time() * 1000))
+        #     print(TEST_START.format(
+        #         ctx['__name__'], funName, start_time, args_tb['type'], args_tb['type']))
+        #     if 0 != args_tb['args_num']:
+        #         dargs = args_tb['args'][:args_tb['args_num']]
+        #         func(*dargs, **dkargs)
+        #     else:
+        #         func()
+        #     end_time = int(round(time.time() * 1000))
+        #     print(TEST_END.format(
+        #         args_tb['type'], args_tb['type'], ctx['__name__'], funName, end_time - start_time))
+        # return call_realfunc
+    '''
+    def call_realfunc():
+        start_time = int(round(time.time() * 1000))
+        print(TEST_START.format(ctx['__name__'],
+                                funName, start_time, args_tb['desc'], args_tb['desc']))
+        lis = []
+        for _ in range(args_tb['c']):
+            # p = Process(target=task1)
+            def Loop(n, *dargs, **dkargs):
+                dargs = args_tb['args']
+                emptyArgs = True
+                if 0 != args_tb['args_num']:
+                    emptyArgs = False
+                    dargs = args_tb['args'][:args_tb['args_num']]
+                for _ in range(n):
+                    if not emptyArgs:
+                        ctx[funName]['cb'] = func(*dargs, **dkargs)
+                    else:
+                        ctx[funName]['cb'] = func()
+            t = Thread(target=Loop, args=[args_tb['npc'], *dargs])
+            lis.append(t)
+            t.start()
+        for t in lis:
+            t.join()
+        end_time = int(round(time.time() * 1000))
+        print(TEST_END.format(
+            args_tb['desc'], args_tb['desc'], ctx['__name__'], funName, end_time - start_time))
+    return call_realfunc
 
 
 def _analysisNotes(ctx, input, funName, func, *dargs, **dkargs):
@@ -142,75 +187,96 @@ def _analysisNotes(ctx, input, funName, func, *dargs, **dkargs):
             args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
         debug(args_tb)
     except:  # csv 类型
-        input_tb = input.split(',')
+        input_tb = input.split(';')
         input_tb = list(map(lambda x: x.strip(), input_tb))
         args_tb['type'] = input_tb[0].upper()
         args_tb['args_num'] = len(dargs)
         if 'UNIT' == args_tb['type']:
-            args_tb['args'] = input_tb[1:]
+            input_tb = input_tb[1].split(',')
+            input_tb = list(map(lambda x: x.strip(), input_tb))
+            args_tb['args'] = input_tb
+            args_tb['c'] = 1
+            args_tb['n'] = 1
+            args_tb['npc'] = 1
             # 必须参数检测
             if args_tb['args_num'] > len(args_tb['args']):
                 raise TypeError("Unit Testing: " + funName + ": Must " + str(args_tb['args_num']) +
                                 " Args, But Get " + str(len(args_tb['args'])))
         elif 'COUNT' == args_tb['type']:
-            args_tb['c'] = int(input_tb[1])  # 并发数
-            args_tb['n'] = int(input_tb[2])  # 并发请求的总数
+            input_tb = input_tb[1].split(',')
+            input_tb = list(map(lambda x: x.strip(), input_tb))
+            args_tb['c'] = int(input_tb[0])  # 并发数
+            args_tb['n'] = int(input_tb[1])  # 并发请求的总数
             args_tb['npc'] = math.floor(
                 args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
-            args_tb['args'] = input_tb[3:]
+            args_tb['args'] = input_tb[2:]
             # 必须参数检测
             if args_tb['args_num'] > len(args_tb['args']):
                 raise TypeError("Count Testing: " + funName + ": Must " + str(args_tb['args_num']) +
                                 " Args, But Get " + str(len(args_tb['args'])))
         elif 'FLOW' == args_tb['type']:
-            pass
+            input_tb = input_tb[1].split(',')
+            input_tb = list(map(lambda x: x.strip(), input_tb))
+            args_tb['args'] = input_tb[1:]
+            srt_tb = input_tb[0].split('-')
+            srt_tb = list(map(lambda x: x.strip(), srt_tb))
+            args_tb['s'] = srt_tb[0]  # step
+            step_pos = args_tb['s'].find(':')
+            if step_pos > 0:
+                args_tb['sn'] = args_tb['s'][:step_pos]
+                args_tb['s'] = int(args_tb['s'][step_pos+1:])
+            else:
+                args_tb['sn'] = 'flow_step' + args_tb['s']
+                args_tb['s'] = int(args_tb['s'])
+            if len(srt_tb) > 2:  # 定义重试机制
+                if len(srt_tb) == 4:  # 定义并发情况
+                    args_tb['c'] = int(srt_tb[1])  # 并发数
+                    args_tb['n'] = int(srt_tb[2])  # 并发请求的总数
+                    args_tb['npc'] = math.floor(
+                        args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
+                elif len(srt_tb) == 3:  # 默认并发数1
+                    args_tb['c'] = 1               # 并发数
+                    args_tb['n'] = int(srt_tb[1])  # 并发请求的总数
+                    args_tb['npc'] = args_tb['n']  # 每个独立线程中执行的次数
+            else:
+                args_tb['c'] = 1               # 并发数
+                args_tb['n'] = int(srt_tb[1])  # 并发请求的总数
+                args_tb['npc'] = args_tb['n']  # 每个独立线程中执行的次数
+            args_tb['t'] = int(srt_tb[-1])            # total
+            # 必须参数检测
+            if args_tb['args_num'] > len(args_tb['args']):
+                raise TypeError("Count Testing: " + funName + ": Must " + str(args_tb['args_num']) +
+                                " Args, But Get " + str(len(args_tb['args'])))
+            debug(args_tb)
     finally:
         pass
-
+    ctx[funName] = {}
+    args_tb['desc'] = args_tb['type'] + ":" + \
+        str(args_tb['c']) + "-" + str(args_tb['n'])
     # 单元测试
     if 'UNIT' == args_tb['type']:
-        def call_realfunc():
-            start_time = int(round(time.time() * 1000))
-            print(TEST_START.format(
-                ctx['__name__'], funName, start_time, args_tb['type'], args_tb['type']))
-            if 0 != args_tb['args_num']:
-                dargs = args_tb['args'][:args_tb['args_num']]
-                func(*dargs, **dkargs)
-            else:
-                func()
-            end_time = int(round(time.time() * 1000))
-            print(TEST_END.format(
-                args_tb['type'], args_tb['type'], ctx['__name__'], funName, end_time - start_time))
-        return call_realfunc
+        args_tb['desc'] = args_tb['type']
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
     # 并发测试
     elif 'COUNT' == args_tb['type']:
-        def call_realfunc():
-            start_time = int(round(time.time() * 1000))
-            print(TEST_START.format(ctx['__name__'],
-                                    funName, start_time, args_tb['type'], args_tb['type']))
-            lis = []
-            for _ in range(args_tb['c']):
-                # p = Process(target=task1)
-                def Loop(n, *dargs, **dkargs):
-                    i = 0
-                    dargs = args_tb['args']
-                    while i < n:
-                        func(*dargs, **dkargs)
-                        i = i + 1
-                t = Thread(target=Loop, args=[args_tb['npc'], *dargs])
-                lis.append(t)
-                t.start()
-            for t in lis:
-                t.join()
-            end_time = int(round(time.time() * 1000))
-            print(TEST_END.format(
-                args_tb['type'], args_tb['type'], ctx['__name__'], funName, end_time - start_time))
-        return call_realfunc
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
     # 流程测试
     elif 'FLOW' == args_tb['type']:
-        pass
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
     else:
         raise TypeError("Unkonw Testing Type: " + funName)
+
+
+def _parse_args():
+    """Parse the args."""
+    parser = argparse.ArgumentParser(description='A simple test tool')
+    parser.add_argument('-p', '--path', type=str, required=False, default="./",
+                        help='test case path')
+    parser.add_argument('-l', '--level', type=int, required=False, default=-1,
+                        help='load module dir level')
+    parser.add_argument('-t', '--type', type=str, required=False, default='a',
+                        help='only test a type case: a:all u:unit c:count f:flow')
+    return parser.parse_args()
 
 
 def loading(path, level, cur):
@@ -245,25 +311,13 @@ def loading(path, level, cur):
     return file_tb
 
 
-def _parse_args():
-    """Parse the args."""
-    parser = argparse.ArgumentParser(description='A simple test tool')
-    parser.add_argument('-p', '--path', type=str, required=False, default="./",
-                        help='test case path')
-    parser.add_argument('-l', '--level', type=int, required=False, default=-1,
-                        help='load module dir level')
-    return parser.parse_args()
-
-
 if __name__ == '__main__':
     args = _parse_args()
-    # print(locals()
-    # print(globals())
     try:
         lib_tb = loading(args.path, args.level, 0)
         # debug(lib_tb)
         for lib in lib_tb:
             for i in lib["_func"]:
                 i()
-    except Exception:
-        print("Load module from {} failed ...".format(args.path))
+    except Exception as e:
+        print("Load module from {} failed ...: {}".format(args.path, e))
