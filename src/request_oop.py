@@ -59,13 +59,13 @@ class Requester:
         return __version__
 
     def run(self):
-        try:
-            # self.debug(lib_tb)
-            for lib in self.lib_tb:
-                for i in lib["_func"]:
-                    i()
-        except Exception as e:
-            print("Load module from {} failed ...: {}".format(self.args.path, e))
+        # try:
+        # self.debug(lib_tb)
+        for lib in self.lib_tb:
+            for i in lib["_func"]:
+                i()
+        # except Exception as e:
+        # print("Load module from {} failed ...: {}".format(self.args.path, e))
 
     def debug(self, *args):
         if self.DEBUG:
@@ -129,14 +129,29 @@ class Requester:
             elif hasattr(a_dict[i], "__call__"):  # 函数
                 func = a_dict[i]
                 varnames = func.__code__.co_varnames
+                argcount = func.__code__.co_argcount
                 if not a_dict[i].__doc__:
                     a_dict[i].__doc__ = ''' unit; '''  # + str(len(varnames))
-                func = self._analysisNotes(
-                    a_dict, a_dict[i].__doc__, i, a_dict[i], *varnames)
-                module_info["_func"].append(func)
+                func, func_pos = self._analysisNotes(
+                    a_dict, a_dict[i].__doc__, i, a_dict[i], argcount, *varnames)
+                if func_pos:
+                    module_info["_func"].insert(func_pos-1, func)
+                else:
+                    module_info["_func"].append(func)
             else:
                 module_info["_vars"].append({i: a_dict[i]})
         return module_info
+
+    def _formatStat(self, ctx, funName, args_tb, stats, start_time, end_time):
+        # print(TEST_START.format(ctx['__name__'],
+        #                         funName, args_tb['desc'], args_tb['desc']))
+        print('Percentage of the call served within a certain time (ms)')
+        for s in stats:
+            print("  {:>5} % \t {}".format(s['perc'], s['time']))
+        print('{}.{} is Tested, Use {} (ms)\n'.format(
+            ctx['__name__'], funName, end_time - start_time))
+        # print(TEST_END.format(
+        #     args_tb['desc'], args_tb['desc'], ctx['__name__'], funName, end_time - start_time))
 
     def _genCallFunc(self, ctx, funName, func, args_tb, *dargs, **dkargs):
         '''
@@ -158,35 +173,55 @@ class Requester:
         '''
         def call_realfunc():
             start_time = int(round(time.time() * 1000))
-            print(TEST_START.format(ctx['__name__'],
-                                    funName, start_time, args_tb['desc'], args_tb['desc']))
             lis = []
+            stats = []
+            stdoutbak = sys.stdout
+            sys.stdout = None
             for _ in range(args_tb['c']):
                 # p = Process(target=task1)
-                def Loop(n, *dargs, **dkargs):
+                def Loop(npc, n, *dargs, **dkargs):
+                    nonlocal stats
+                    stat = {
+                        'perc': 0,
+                        'time': 0,
+                    }
+                    # 屏蔽标准输出，便于输出测试统计信息
                     dargs = args_tb['args']
                     emptyArgs = True
                     if 0 != args_tb['args_num']:
                         emptyArgs = False
                         dargs = args_tb['args'][:args_tb['args_num']]
-                    for _ in range(n):
-                        if not emptyArgs:
-                            ctx[funName]['cb'] = func(*dargs, **dkargs)
-                        else:
-                            ctx[funName]['cb'] = func()
-                t = Thread(target=Loop, args=[args_tb['npc'], *dargs])
+                    for _ in range(npc):
+                        stime = int(round(time.time() * 1000))
+                        try:
+                            if not emptyArgs:
+                                ctx[funName]['cb'] = func(*dargs, **dkargs)
+                            else:
+                                ctx[funName]['cb'] = func()
+                        except Exception as e:
+                            if 'FLOW' == args_tb['type']:
+                                raise e
+                        finally:
+                            stat['perc'] = (len(stats) + 1) * 100 / n
+                            stat['time'] = int(
+                                round(time.time() * 1000)) - stime
+                            stats.append(stat)
+                t = Thread(target=Loop, args=[
+                    args_tb['npc'], args_tb['n'], *dargs])
                 lis.append(t)
                 t.start()
             for t in lis:
                 t.join()
+            # 恢复标准输出
+            sys.stdout = stdoutbak
             end_time = int(round(time.time() * 1000))
-            print(TEST_END.format(
-                args_tb['desc'], args_tb['desc'], ctx['__name__'], funName, end_time - start_time))
+            self._formatStat(ctx, funName, args_tb,
+                             stats, start_time, end_time)
         return call_realfunc
 
-    def _analysisNotes(self, ctx, input, funName, func, *dargs, **dkargs):
+    def _analysisNotes(self, ctx, input, funName, func, argcount, *dargs, **dkargs):
         '''
-            分析注释
+        分析注释
         '''
         if type(input) != type("") or 0 == len(input):
             return None
@@ -196,10 +231,12 @@ class Requester:
         if type(input) != type("") or 0 == len(input):
             return None
         args_tb = {}
+        args_tb['cfg'] = input
+        fun_pos = None
         try:  # json 类型
             args_tb = json.loads(input)
             args_tb['type'] = args_tb['type'].upper()
-            args_tb['args_num'] = len(dargs)
+            args_tb['args_num'] = argcount
             args_tb['npc'] = math.floor(
                 args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
             self.debug(args_tb)
@@ -207,7 +244,7 @@ class Requester:
             input_tb = input.split(';')
             input_tb = list(map(lambda x: x.strip(), input_tb))
             args_tb['type'] = input_tb[0].upper()
-            args_tb['args_num'] = len(dargs)
+            args_tb['args_num'] = argcount
             if 'UNIT' == args_tb['type']:
                 input_tb = input_tb[1].split(',')
                 input_tb = list(map(lambda x: x.strip(), input_tb))
@@ -245,6 +282,7 @@ class Requester:
                 else:
                     args_tb['sn'] = 'flow_step' + args_tb['s']
                     args_tb['s'] = int(args_tb['s'])
+                fun_pos = args_tb['s']
                 if len(srt_tb) > 2:  # 定义重试机制
                     if len(srt_tb) == 4:  # 定义并发情况
                         args_tb['c'] = int(srt_tb[1])  # 并发数
@@ -273,19 +311,22 @@ class Requester:
         # 单元测试
         if 'UNIT' == args_tb['type']:
             args_tb['desc'] = args_tb['type']
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
         # 并发测试
         elif 'COUNT' == args_tb['type']:
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
         # 流程测试
         elif 'FLOW' == args_tb['type']:
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs)
+            args_tb['desc'] = args_tb['type'] + '(' + str(args_tb['s']) + "):" + \
+                str(args_tb['c']) + "-" + str(args_tb['n'])
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), fun_pos
         else:
             raise TypeError("Unkonw Testing Type: " + funName)
 
     def _parse_args(self):
         """Parse the args."""
         parser = argparse.ArgumentParser(description='A simple test tool')
+        parser.add_argument('path', nargs='?')
         parser.add_argument('-p', '--path', type=str, required=False, default="./",
                             help='test case path')
         parser.add_argument('-l', '--level', type=int, required=False, default=-1,
