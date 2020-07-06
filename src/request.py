@@ -79,7 +79,7 @@ def _initPath(path):
     return path
 
 
-def _loadModule(path, filename):
+def _loadModule(path, filename, cmd_args):
     '''
         加载python模块
     '''
@@ -104,7 +104,7 @@ def _loadModule(path, filename):
         "_vars": [],
         "_clas": [],
         "_file": absPath,
-        "_module": a
+        "_module": a,
     }
     for i in a_dict:
         if i.startswith('__'):  # 非内置变量
@@ -117,12 +117,18 @@ def _loadModule(path, filename):
             argcount = func.__code__.co_argcount
             if not a_dict[i].__doc__:
                 a_dict[i].__doc__ = ''' unit; '''  # + str(len(varnames))
-            func, func_pos = _analysisNotes(
-                a_dict, a_dict[i].__doc__, i, a_dict[i], argcount, *varnames)
+            func, args_tb, func_pos = _analysisNotes(
+                a_dict, a_dict[i].__doc__, i, a_dict[i], argcount, cmd_args, *varnames)
             if func_pos:
-                module_info["_func"].insert(func_pos-1, func)
+                module_info["_func"].insert(func_pos-1, {
+                    "case": func,
+                    "env": args_tb,
+                })
             else:
-                module_info["_func"].append(func)
+                module_info["_func"].append({
+                    "case": func,
+                    "env": args_tb,
+                })
         else:
             module_info["_vars"].append({i: a_dict[i]})
     return module_info
@@ -131,8 +137,21 @@ def _loadModule(path, filename):
 def _formatStat(ctx, funName, args_tb, stats, start_time, end_time):
     # print(TEST_START.format(ctx['__name__'],
     #                         funName, args_tb['desc'], args_tb['desc']))
-    print('Percentage of the call served within a certain time (ms)')
+    avg, max, min, sum = 0, 0, stats[0]['time'], 0
     for s in stats:
+        sum = sum + s['time']
+        if min > s['time']:
+            min = s['time']
+        if max < s['time']:
+            max = s['time']
+    avg = sum / len(stats)
+    args_tb['stats'] = {}
+    args_tb['stats']['list'] = stats
+    args_tb['stats']['avg'] = avg
+    args_tb['stats']['max'] = max
+    args_tb['stats']['min'] = min
+    print('Percentage of the call served within a certain time (ms)')
+    for s in args_tb['stats']['list']:
         print("  {:>5} % \t {}".format(s['perc'], s['time']))
     print('{}.{} is Tested, Use {} (ms)\n'.format(
         ctx['__name__'], funName, end_time - start_time))
@@ -158,38 +177,45 @@ def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
         #         args_tb['type'], args_tb['type'], ctx['__name__'], funName, end_time - start_time))
         # return call_realfunc
     '''
-    def call_realfunc():
+    def call_realfunc(*dargs, **dkargs):
         start_time = int(round(time.time() * 1000))
         lis = []
         stats = []
-        stdoutbak = sys.stdout
-        sys.stdout = None
+
+        # 屏蔽标准输出，便于输出测试统计信息
+        if None == args_tb["cmd_args"].stdout:
+            stdoutbak = sys.stdout
+            sys.stdout = None
+        elif "" != args_tb["cmd_args"].output:  # 输出到指定文件
+            pass
+        else:  # 标准输出
+            pass
         for _ in range(args_tb['c']):
             # p = Process(target=task1)
             def Loop(npc, n, *dargs, **dkargs):
                 nonlocal stats
-                stat = {
-                    'perc': 0,
-                    'time': 0,
-                }
-                # 屏蔽标准输出，便于输出测试统计信息
-                dargs = args_tb['args']
+                if len(dargs) <= 0 or len(dargs[0]) <= 0:  # 有外部参数
+                    dargs = args_tb['args']
                 emptyArgs = True
                 if 0 != args_tb['args_num']:
                     emptyArgs = False
-                    dargs = args_tb['args'][:args_tb['args_num']]
+                    dargs = dargs[:args_tb['args_num']]
                 for _ in range(npc):
+                    stat = {
+                        'perc': 0,
+                        'time': 0,
+                    }
                     stime = int(round(time.time() * 1000))
                     try:
                         if not emptyArgs:
-                            ctx[funName]['cb'] = func(*dargs, **dkargs)
+                            args_tb['cb'] = func(*dargs, **dkargs)
                         else:
-                            ctx[funName]['cb'] = func()
+                            args_tb['cb'] = func()
                     except Exception as e:
                         if 'FLOW' == args_tb['type']:
                             raise e
                     finally:
-                        stat['perc'] = (len(stats) + 1) * 100 / n
+                        stat['perc'] = round((len(stats) + 1) * 100 / n, 1)
                         stat['time'] = int(round(time.time() * 1000)) - stime
                         stats.append(stat)
             t = Thread(target=Loop, args=[
@@ -198,14 +224,23 @@ def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
             t.start()
         for t in lis:
             t.join()
-        # 恢复标准输出
-        sys.stdout = stdoutbak
+
+        # 禁止输出
+        if None == args_tb["cmd_args"].stdout:
+            # 恢复标准输出
+            sys.stdout = stdoutbak
+        elif "" != args_tb["cmd_args"].output:  # 输出到指定文件
+            pass
+        else:  # 标准输出
+            pass
+
         end_time = int(round(time.time() * 1000))
+        stats = sorted(stats, key=lambda e: e['perc'], reverse=False)
         _formatStat(ctx, funName, args_tb, stats, start_time, end_time)
     return call_realfunc
 
 
-def _analysisNotes(ctx, input, funName, func, argcount, *dargs, **dkargs):
+def _analysisNotes(ctx, input, funName, func, argcount, cmd_args, *dargs, **dkargs):
     '''
         分析注释
     '''
@@ -225,6 +260,7 @@ def _analysisNotes(ctx, input, funName, func, argcount, *dargs, **dkargs):
         args_tb['args_num'] = argcount
         args_tb['npc'] = math.floor(
             args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
+        args_tb['cfg'] = input
         debug(args_tb)
     except:  # csv 类型
         input_tb = input.split(';')
@@ -294,18 +330,19 @@ def _analysisNotes(ctx, input, funName, func, argcount, *dargs, **dkargs):
     ctx[funName] = {}
     args_tb['desc'] = args_tb['type'] + ":" + \
         str(args_tb['c']) + "-" + str(args_tb['n'])
+    args_tb['cmd_args'] = cmd_args
     # 单元测试
     if 'UNIT' == args_tb['type']:
         args_tb['desc'] = args_tb['type']
-        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, None
     # 并发测试
     elif 'COUNT' == args_tb['type']:
-        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, None
     # 流程测试
     elif 'FLOW' == args_tb['type']:
         args_tb['desc'] = args_tb['type'] + '(' + str(args_tb['s']) + "):" + \
             str(args_tb['c']) + "-" + str(args_tb['n'])
-        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), fun_pos
+        return _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, fun_pos
     else:
         raise TypeError("Unkonw Testing Type: " + funName)
 
@@ -320,10 +357,14 @@ def _parse_args():
                         help='load module dir level')
     parser.add_argument('-t', '--type', type=str, required=False, default='a',
                         help='only test a type case: a:all u:unit c:count f:flow')
+    parser.add_argument('-1', '--stdout', action="store_const",
+                        const=0, help='output case stdout')
+    parser.add_argument('-o', '--output', nargs='?', type=str, required=False,
+                        help='output case run result into file')
     return parser.parse_args()
 
 
-def loading(path, level, cur):
+def loading(path, level, cur, cmd_args):
     '''
         加载某一路径的所有python
         实现动态加载py
@@ -346,12 +387,12 @@ def loading(path, level, cur):
         absPath = os.path.join(path, filename)
         # 通过绝对路径判断是否是文件
         if os.path.isfile(absPath):
-            module_info = _loadModule(path, filename)
+            module_info = _loadModule(path, filename, cmd_args)
             if module_info:
                 file_tb.append(module_info)
         else:
             if not filename.startswith('.') and not filename.startswith('__'):
-                loading(absPath, level, cur)
+                loading(absPath, level, cur, cmd_args)
     return file_tb
 
 
@@ -359,8 +400,22 @@ def run(module_list):
     # debug(module_list)
     print(COPYLEFT)
     for lib in module_list:
-        for case in lib["_func"]:
-            case()
+        cb_dargs, cb_dkargs = [], {}
+        for handler in lib["_func"]:
+            # 流程测试
+            if ("FLOW" == handler["env"]["type"]):
+                handler["case"](*cb_dargs, **cb_dkargs)
+                if type({}) == handler["env"]['cb']:
+                    cb_dkargs = handler["env"]['cb']
+                elif type(()) == handler["env"]['cb'] or type([]) == handler["env"]['cb']:
+                    cb_dargs = handler["env"]['cb']
+                else:
+                    cb_dargs = []
+                    cb_dargs.append(handler["env"]['cb'])
+                # print(handler["env"])
+            else:
+                handler["case"]()
+                # print(handler["env"])
     print(END_NOTE + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
 
@@ -370,8 +425,8 @@ def show():
 
 if __name__ == '__main__':
     args = _parse_args()
-    try:
-        module_list = loading(args.path, args.level, 0)
-        run(module_list)
-    except Exception as e:
-        print("Load module from {} failed ...: {}".format(args.path, e))
+    # try:
+    module_list = loading(args.path, args.level, 0, args)
+    run(module_list)
+    # except Exception as e:
+    # print("Load module from {} failed ...: {}".format(args.path, e))
