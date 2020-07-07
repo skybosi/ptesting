@@ -25,8 +25,11 @@ Copyright 2020 skybosi, https://github.com/skybosi/ptesting
 -----------------------------------------------------------
 """
 
-TEST_START = COPYLEFT + '{}.{} is Testing ... {} \n{} ======START-PTESTING====== {}'
-TEST_END = '{} =======END-PTESTING======= {}\n{}.{} is Tested, Use {} ms'
+END_NOTE = """-----------------------------------------------------------
+Congratulation! All Case is Tested At """
+
+TEST_START = '{}.{} is Testing ... \n{} ======START-PTESTING====== {}'
+TEST_END = '{} =======END-PTESTING======= {}\n{}.{} is Tested, Use {} ms\n'
 
 # 当前文件所在目录的绝对路径
 cur_path = os.path.dirname(os.path.abspath(__file__))
@@ -51,21 +54,34 @@ class Requester:
         if '' != arg_str:
             pass
         args = self._parse_args()
-        self.args = args
+        self.cmd_args = args
         self.file_tb = []
-        self.lib_tb = self._loading(args.path, args.level, 0)
+        self.module_list = self.loading(args.path, args.level, 0)
 
     def version(self):
         return __version__
 
     def run(self):
-        # try:
-        # self.debug(lib_tb)
-        for lib in self.lib_tb:
-            for i in lib["_func"]:
-                i()
-        # except Exception as e:
-        # print("Load module from {} failed ...: {}".format(self.args.path, e))
+        print(COPYLEFT)
+        for lib in self.module_list:
+            cb_dargs, cb_dkargs = [], {}
+            for handler in lib["_func"]:
+                # 流程测试
+                if ("FLOW" == handler["env"]["type"]):
+                    handler["case"](*cb_dargs, **cb_dkargs)
+                    if type({}) == handler["env"]['cb']:
+                        cb_dkargs = handler["env"]['cb']
+                    elif type(()) == handler["env"]['cb'] or type([]) == handler["env"]['cb']:
+                        cb_dargs = handler["env"]['cb']
+                    else:
+                        cb_dargs = []
+                        cb_dargs.append(handler["env"]['cb'])
+                    # print(handler["env"])
+                else:
+                    handler["case"]()
+                    # print(handler["env"])
+        print(END_NOTE + time.strftime('%Y-%m-%d %H:%M:%S',
+                                       time.localtime(time.time())))
 
     def debug(self, *args):
         if self.DEBUG:
@@ -132,12 +148,18 @@ class Requester:
                 argcount = func.__code__.co_argcount
                 if not a_dict[i].__doc__:
                     a_dict[i].__doc__ = ''' unit; '''  # + str(len(varnames))
-                func, func_pos = self._analysisNotes(
+                func, args_tb, func_pos = self._analysisNotes(
                     a_dict, a_dict[i].__doc__, i, a_dict[i], argcount, *varnames)
                 if func_pos:
-                    module_info["_func"].insert(func_pos-1, func)
+                    module_info["_func"].insert(func_pos-1, {
+                        "case": func,
+                        "env": args_tb,
+                    })
                 else:
-                    module_info["_func"].append(func)
+                    module_info["_func"].append({
+                        "case": func,
+                        "env": args_tb,
+                    })
             else:
                 module_info["_vars"].append({i: a_dict[i]})
         return module_info
@@ -145,11 +167,25 @@ class Requester:
     def _formatStat(self, ctx, funName, args_tb, stats, start_time, end_time):
         # print(TEST_START.format(ctx['__name__'],
         #                         funName, args_tb['desc'], args_tb['desc']))
-        print('Percentage of the call served within a certain time (ms)')
-        for s in stats:
-            print("  {:>5} % \t {}".format(s['perc'], s['time']))
-        print('{}.{} is Tested, Use {} (ms)\n'.format(
-            ctx['__name__'], funName, end_time - start_time))
+        if 'UNIT' != args_tb['type']:
+            avg, max, min, sum = 0, 0, stats[0]['time'], 0
+            for s in stats:
+                sum = sum + s['time']
+                if min > s['time']:
+                    min = s['time']
+                if max < s['time']:
+                    max = s['time']
+            avg = sum / len(stats)
+            args_tb['stats'] = {}
+            args_tb['stats']['list'] = stats
+            args_tb['stats']['avg'] = avg
+            args_tb['stats']['max'] = max
+            args_tb['stats']['min'] = min
+            print('Percentage of the call served within a certain time (ms)')
+            for s in args_tb['stats']['list']:
+                print("  {:>5} % \t {}".format(s['perc'], s['time']))
+        print('{} TEST: {}.{} is Tested, Use {} (ms)\n'.format(
+            args_tb['type'], ctx['__name__'], funName, end_time - start_time))
         # print(TEST_END.format(
         #     args_tb['desc'], args_tb['desc'], ctx['__name__'], funName, end_time - start_time))
 
@@ -171,38 +207,45 @@ class Requester:
             #         args_tb['type'], args_tb['type'], ctx['__name__'], funName, end_time - start_time))
             # return call_realfunc
         '''
-        def call_realfunc():
+        def call_realfunc(*dargs, **dkargs):
             start_time = int(round(time.time() * 1000))
             lis = []
             stats = []
-            stdoutbak = sys.stdout
-            sys.stdout = None
+
+            # 屏蔽标准输出，便于输出测试统计信息
+            if None == self.cmd_args.stdout:
+                stdoutbak = sys.stdout
+                sys.stdout = None
+            elif "" != self.cmd_args.output:  # 输出到指定文件
+                pass
+            else:  # 标准输出
+                pass
             for _ in range(args_tb['c']):
                 # p = Process(target=task1)
                 def Loop(npc, n, *dargs, **dkargs):
                     nonlocal stats
-                    stat = {
-                        'perc': 0,
-                        'time': 0,
-                    }
-                    # 屏蔽标准输出，便于输出测试统计信息
-                    dargs = args_tb['args']
+                    if len(dargs) <= 0 or len(dargs[0]) <= 0:  # 有外部参数
+                        dargs = args_tb['args']
                     emptyArgs = True
                     if 0 != args_tb['args_num']:
                         emptyArgs = False
-                        dargs = args_tb['args'][:args_tb['args_num']]
+                        dargs = dargs[:args_tb['args_num']]
                     for _ in range(npc):
+                        stat = {
+                            'perc': 0,
+                            'time': 0,
+                        }
                         stime = int(round(time.time() * 1000))
                         try:
                             if not emptyArgs:
-                                ctx[funName]['cb'] = func(*dargs, **dkargs)
+                                args_tb['cb'] = func(*dargs, **dkargs)
                             else:
-                                ctx[funName]['cb'] = func()
+                                args_tb['cb'] = func()
                         except Exception as e:
                             if 'FLOW' == args_tb['type']:
                                 raise e
                         finally:
-                            stat['perc'] = (len(stats) + 1) * 100 / n
+                            stat['perc'] = round((len(stats) + 1) * 100 / n, 1)
                             stat['time'] = int(
                                 round(time.time() * 1000)) - stime
                             stats.append(stat)
@@ -212,9 +255,17 @@ class Requester:
                 t.start()
             for t in lis:
                 t.join()
-            # 恢复标准输出
-            sys.stdout = stdoutbak
+
+            # 禁止输出
+            if None == self.cmd_args.stdout:
+                # 恢复标准输出
+                sys.stdout = stdoutbak
+            elif "" != self.cmd_args.output:  # 输出到指定文件
+                pass
+            else:  # 标准输出
+                pass
             end_time = int(round(time.time() * 1000))
+            stats = sorted(stats, key=lambda e: e['perc'], reverse=False)
             self._formatStat(ctx, funName, args_tb,
                              stats, start_time, end_time)
         return call_realfunc
@@ -239,6 +290,7 @@ class Requester:
             args_tb['args_num'] = argcount
             args_tb['npc'] = math.floor(
                 args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
+            args_tb['cfg'] = input
             self.debug(args_tb)
         except:  # csv 类型
             input_tb = input.split(';')
@@ -311,15 +363,15 @@ class Requester:
         # 单元测试
         if 'UNIT' == args_tb['type']:
             args_tb['desc'] = args_tb['type']
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, None
         # 并发测试
         elif 'COUNT' == args_tb['type']:
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), None
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, None
         # 流程测试
         elif 'FLOW' == args_tb['type']:
             args_tb['desc'] = args_tb['type'] + '(' + str(args_tb['s']) + "):" + \
                 str(args_tb['c']) + "-" + str(args_tb['n'])
-            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), fun_pos
+            return self._genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs), args_tb, fun_pos
         else:
             raise TypeError("Unkonw Testing Type: " + funName)
 
@@ -329,13 +381,17 @@ class Requester:
         parser.add_argument('path', nargs='?')
         parser.add_argument('-p', '--path', type=str, required=False, default="./",
                             help='test case path')
-        parser.add_argument('-l', '--level', type=int, required=False, default=-1,
+        parser.add_argument('-L', '--level', type=int, required=False, default=-1,
                             help='load module dir level')
         parser.add_argument('-t', '--type', type=str, required=False, default='a',
                             help='only test a type case: a:all u:unit c:count f:flow')
+        parser.add_argument('-1', '--stdout', action="store_const",
+                            const=0, help='output case stdout')
+        parser.add_argument('-o', '--output', nargs='?', type=str, required=False,
+                            help='output case run result into file')
         return parser.parse_args()
 
-    def _loading(self, path, level, cur):
+    def loading(self, path, level, cur):
         '''
             加载某一路径的所有python
             实现动态加载py
@@ -363,7 +419,7 @@ class Requester:
                     self.file_tb.append(module_info)
             else:
                 if not filename.startswith('.') and not filename.startswith('__'):
-                    self._loading(absPath, level, cur)
+                    self.loading(absPath, level, cur)
         return self.file_tb
 
 

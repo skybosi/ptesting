@@ -6,9 +6,11 @@ def deep_test_hello(n, m):
     '''
         # 这是一个注释
         // 这又是一种注释
-        count, 10, 10, 4, 4 # 注释
+        count; 10, 10, 4, 4 # 注释
     '''
-    print("deep hello ptesting", n)
+    for _ in  range(1000000):
+        pass
+    return "deep_test_hello"
 
 
 def deep_test_world(n):
@@ -22,6 +24,9 @@ def deep_test_world(n):
         # {"a":1,"b":2,"c":3,"d":4,"e":5}
     """
     print("deep world ptesting", n)
+    for _ in  range(1000000):
+        pass
+    return "deep_test_world", n
 
 
 class A:

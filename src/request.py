@@ -137,22 +137,23 @@ def _loadModule(path, filename, cmd_args):
 def _formatStat(ctx, funName, args_tb, stats, start_time, end_time):
     # print(TEST_START.format(ctx['__name__'],
     #                         funName, args_tb['desc'], args_tb['desc']))
-    avg, max, min, sum = 0, 0, stats[0]['time'], 0
-    for s in stats:
-        sum = sum + s['time']
-        if min > s['time']:
-            min = s['time']
-        if max < s['time']:
-            max = s['time']
-    avg = sum / len(stats)
-    args_tb['stats'] = {}
-    args_tb['stats']['list'] = stats
-    args_tb['stats']['avg'] = avg
-    args_tb['stats']['max'] = max
-    args_tb['stats']['min'] = min
-    print('Percentage of the call served within a certain time (ms)')
-    for s in args_tb['stats']['list']:
-        print("  {:>5} % \t {}".format(s['perc'], s['time']))
+    if 'UNIT' != args_tb['type']:
+        avg, max, min, sum = 0, 0, stats[0]['time'], 0
+        for s in stats:
+            sum = sum + s['time']
+            if min > s['time']:
+                min = s['time']
+            if max < s['time']:
+                max = s['time']
+        avg = sum / len(stats)
+        args_tb['stats'] = {}
+        args_tb['stats']['list'] = stats
+        args_tb['stats']['avg'] = avg
+        args_tb['stats']['max'] = max
+        args_tb['stats']['min'] = min
+        print('Percentage of the call served within a certain time (ms)')
+        for s in args_tb['stats']['list']:
+            print("  {:>5} % \t {}".format(s['perc'], s['time']))
     print('{}.{} is Tested, Use {} (ms)\n'.format(
         ctx['__name__'], funName, end_time - start_time))
     # print(TEST_END.format(
@@ -353,7 +354,7 @@ def _parse_args():
     parser.add_argument('path', nargs='?')
     parser.add_argument('-p', '--path', type=str, required=False, default="./",
                         help='test case path')
-    parser.add_argument('-l', '--level', type=int, required=False, default=-1,
+    parser.add_argument('-L', '--level', type=int, required=False, default=-1,
                         help='load module dir level')
     parser.add_argument('-t', '--type', type=str, required=False, default='a',
                         help='only test a type case: a:all u:unit c:count f:flow')
@@ -425,8 +426,10 @@ def show():
 
 if __name__ == '__main__':
     args = _parse_args()
-    # try:
     module_list = loading(args.path, args.level, 0, args)
     run(module_list)
+    # try:
+    #     module_list = loading(args.path, args.level, 0, args)
+    #     run(module_list)
     # except Exception as e:
-    # print("Load module from {} failed ...: {}".format(args.path, e))
+    #     print("Load module from {} failed ...: {}".format(args.path, e))
