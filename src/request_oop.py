@@ -146,10 +146,14 @@ class Requester:
                 func = a_dict[i]
                 varnames = func.__code__.co_varnames
                 argcount = func.__code__.co_argcount
-                if not a_dict[i].__doc__:
-                    a_dict[i].__doc__ = ''' unit; '''  # + str(len(varnames))
+                # 初始化分析注释，设置可能的默认值
+                # 清除 // 行级注释;清除不可见字符
+                cfg = re.sub('\'', '"', re.sub(
+                    r'\s+', "", re.sub(r'[//|#].*', '', (a_dict[i].__doc__ or ''))))
+                if type(cfg) != type("") or 0 == len(cfg):
+                    cfg = '''unit;'''
                 func, args_tb, func_pos = self._analysisNotes(
-                    a_dict, a_dict[i].__doc__, i, a_dict[i], argcount, *varnames)
+                    a_dict, cfg, i, a_dict[i], argcount, *varnames)
                 if func_pos:
                     module_info["_func"].insert(func_pos-1, {
                         "case": func,
@@ -272,15 +276,8 @@ class Requester:
 
     def _analysisNotes(self, ctx, input, funName, func, argcount, *dargs, **dkargs):
         '''
-        分析注释
+            分析注释中的测试控制内容
         '''
-        if type(input) != type("") or 0 == len(input):
-            return None
-        # 3.清除 // 行级注释
-        input = re.sub('\'', '"', re.sub(
-            r'\s+', "", re.sub(r'[//|#].*', '', input)))
-        if type(input) != type("") or 0 == len(input):
-            return None
         args_tb = {}
         args_tb['cfg'] = input
         fun_pos = None
@@ -292,15 +289,23 @@ class Requester:
                 args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
             args_tb['cfg'] = input
             self.debug(args_tb)
-        except:  # csv 类型
-            input_tb = input.split(';')
-            input_tb = list(map(lambda x: x.strip(), input_tb))
-            args_tb['type'] = input_tb[0].upper()
+        except:  # 字符串类型
+            # cfg = re.search(r"(unit|count|flow);([^;]*);?(.*)", input, re.I | re.M)
+            cfg = re.fullmatch(
+                r"(?P<type>unit|count|flow);(?P<ctrl>[^;]*)(?P<is_args>;?)(?(is_args)(?P<args>.*)|$)", input, re.I | re.M)
+            if not cfg:
+                raise TypeError("Unkonw Testing cfg: " + input)
+            cfg_type = cfg.group('type').upper()  # or cfg.group(1).upper()
+            cfg_ctrl = cfg.group('ctrl')  # or cfg.group(2)
+            cfg_args = cfg.group('args')  # or cfg.group(3)
+            args_tb['type'] = cfg_type
+
             args_tb['args_num'] = argcount
             if 'UNIT' == args_tb['type']:
-                input_tb = input_tb[1].split(',')
-                input_tb = list(map(lambda x: x.strip(), input_tb))
-                args_tb['args'] = input_tb
+                cfg_args = cfg_args.split(',')
+                cfg_args = cfg_args if '' != cfg_args[0] else cfg_ctrl.split(
+                    ',')
+                args_tb['args'] = cfg_args
                 args_tb['c'] = 1
                 args_tb['n'] = 1
                 args_tb['npc'] = 1
@@ -309,23 +314,21 @@ class Requester:
                     raise TypeError("Unit Testing: " + funName + ": Must " + str(args_tb['args_num']) +
                                     " Args, But Get " + str(len(args_tb['args'])))
             elif 'COUNT' == args_tb['type']:
-                input_tb = input_tb[1].split(',')
-                input_tb = list(map(lambda x: x.strip(), input_tb))
-                args_tb['c'] = int(input_tb[0])  # 并发数
-                args_tb['n'] = int(input_tb[1])  # 并发请求的总数
+                cfg_args = cfg_args.split(',')
+                args_tb['args'] = cfg_args
+                cfg_ctrl = cfg_ctrl.split(',')
+                args_tb['c'] = int(cfg_ctrl[0])  # 并发数
+                args_tb['n'] = int(cfg_ctrl[1])  # 并发请求的总数
                 args_tb['npc'] = math.floor(
                     args_tb['n'] / args_tb['c'])  # 每个独立线程中执行的次数
-                args_tb['args'] = input_tb[2:]
                 # 必须参数检测
                 if args_tb['args_num'] > len(args_tb['args']):
                     raise TypeError("Count Testing: " + funName + ": Must " + str(args_tb['args_num']) +
                                     " Args, But Get " + str(len(args_tb['args'])))
             elif 'FLOW' == args_tb['type']:
-                input_tb = input_tb[1].split(',')
-                input_tb = list(map(lambda x: x.strip(), input_tb))
-                args_tb['args'] = input_tb[1:]
-                srt_tb = input_tb[0].split('-')
-                srt_tb = list(map(lambda x: x.strip(), srt_tb))
+                cfg_args = cfg_args.split(',')
+                args_tb['args'] = cfg_args
+                srt_tb = cfg_ctrl.split('-')
                 args_tb['s'] = srt_tb[0]  # step
                 step_pos = args_tb['s'].find(':')
                 if step_pos > 0:
@@ -354,7 +357,6 @@ class Requester:
                 if args_tb['args_num'] > len(args_tb['args']):
                     raise TypeError("Count Testing: " + funName + ": Must " + str(args_tb['args_num']) +
                                     " Args, But Get " + str(len(args_tb['args'])))
-                self.debug(args_tb)
         finally:
             pass
         ctx[funName] = {}

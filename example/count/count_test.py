@@ -6,7 +6,9 @@ def deep_test_hello(n, m):
     '''
         # 这是一个注释
         // 这又是一种注释
-        count; 10, 10, 4, 4 # 注释
+        count;  #类型
+        10, 10; # 并发控制
+        4, 4 # 注释
     '''
     for _ in  range(1000000):
         pass

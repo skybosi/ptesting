@@ -7,7 +7,7 @@ A simple test tool, You can use testing:
 
     ![unit](./doc/unit.png)
 
-- 压力测试：`count; Concurrency, Number, args, ...`
+- 压力测试：`count; Concurrency, Number; args, ...`
     - count: 测试类型（多次测试）
     - Concurrency: 并发量
     - Number: 执行总次数
@@ -15,7 +15,7 @@ A simple test tool, You can use testing:
 
     ![count](./doc/count.png)
 
-- 流程测试：`flow; Step[-Concurrency-Retry]-Total,args, ...`
+- 流程测试：`flow; Step[-Concurrency-Retry]-Total;args, ...`
     - flow: 测试类型（流程测试）
     - Step[-Retry]-Total: 流程的步骤[-重试次数]-流程的总步骤
     - args: 当前步骤功能测试函数的必须参数
