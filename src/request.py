@@ -54,6 +54,13 @@ parentpath = os.path.abspath('..')
 
 file_tb = []
 
+# 用于区分测试结果中的标准输出
+PS1 = '❀  '
+UNIT_PS1 = '✒  '
+COUNT_PS1 = '☯  '
+FLOW_PS1 = '✔  '
+FLOW_ERR_PS1 = '✘  '
+
 
 def _initPath(path):
     '''
@@ -141,24 +148,44 @@ def _loadModule(path, filename, cmd_args):
 def _formatStat(ctx, funName, args_tb, stats, start_time, end_time):
     # print(TEST_START.format(ctx['__name__'],
     #                         funName, args_tb['desc'], args_tb['desc']))
-    if 'UNIT' != args_tb['type']:
-        avg, max, min, sum = 0, 0, stats[0]['time'], 0
+    if 'COUNT' == args_tb['type']:
+        avg, i, max, min = 0, 0, 0, stats[0]['time']
         for s in stats:
-            sum = sum + s['time']
             if min > s['time']:
                 min = s['time']
             if max < s['time']:
                 max = s['time']
-        avg = sum / len(stats)
+            i += 1
+            avg += (s['time'] - avg) / i
+        avg = round(avg, 3)
         args_tb['stats'] = {}
         args_tb['stats']['list'] = stats
         args_tb['stats']['avg'] = avg
         args_tb['stats']['max'] = max
         args_tb['stats']['min'] = min
-        print('Percentage of the call served within a certain time (ms)')
+        print(COUNT_PS1 + 'Percentage of the call served within a certain time (ms)')
         for s in args_tb['stats']['list']:
             print("  {:>5} % \t {}".format(s['perc'], s['time']))
-    print('{}.{} is Tested, Use {} (ms)\n'.format(
+    elif "FLOW" == args_tb['type']:
+        avg, i, retry, err = stats[0]['time'], 0, 0, None
+        for s in stats:
+            i += 1
+            avg += (s['time'] - avg) / i
+            if s['runStatus']['retry'] > 0:
+                retry += 1
+                err = s['runStatus']['except']
+        avg = round(avg, 3)
+        if retry > 0:
+            print(
+                FLOW_ERR_PS1 + "[FLOW] Step:{:^3} \t{} \tException-{}".format(s['step'], avg, str(err)))
+        else:
+            print(
+                FLOW_PS1 + "[FLOW] Step:{:^3} \t{} \tConcurrency-{}".format(s['step'], avg, args_tb['c']))
+    elif "UNIT" == args_tb['type']:
+        print(
+            UNIT_PS1 + "{:>5} \t{}".format(funName, stats[0]['time']))
+        pass
+    print(PS1 + '{}.{} is Tested, Use {} (ms)\n'.format(
         ctx['__name__'], funName, end_time - start_time))
     # print(TEST_END.format(
     #     args_tb['desc'], args_tb['desc'], ctx['__name__'], funName, end_time - start_time))
@@ -199,9 +226,9 @@ def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
             # p = Process(target=task1)
             def Loop(npc, n, *dargs, **dkargs):
                 nonlocal stats
+                emptyArgs = True
                 if len(dargs) <= 0 or len(dargs[0]) <= 0:  # 有外部参数
                     dargs = args_tb['args']
-                emptyArgs = True
                 if 0 != args_tb['args_num']:
                     emptyArgs = False
                     dargs = dargs[:args_tb['args_num']]
@@ -209,7 +236,13 @@ def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
                     stat = {
                         'perc': 0,
                         'time': 0,
+                        'runStatus': {
+                            'retry': 0,
+                            'except': []
+                        }
                     }
+                    if args_tb.get('s'):
+                        stat['step'] = args_tb['s']
                     stime = int(round(time.time() * 1000))
                     try:
                         if not emptyArgs:
@@ -217,14 +250,17 @@ def _genCallFunc(ctx, funName, func, args_tb, *dargs, **dkargs):
                         else:
                             args_tb['cb'] = func()
                     except Exception as e:
+                        stat['runStatus']['retry'] += 1
+                        stat['runStatus']['except'].append(e)
+                    else:  # 针对流程测试，如果执行成功无需再次重试
                         if 'FLOW' == args_tb['type']:
-                            raise e
+                            break
                     finally:
                         stat['perc'] = round((len(stats) + 1) * 100 / n, 1)
                         stat['time'] = int(round(time.time() * 1000)) - stime
                         stats.append(stat)
             t = Thread(target=Loop, args=[
-                       args_tb['npc'], args_tb['n'], *dargs])
+                       args_tb['npc'], args_tb['n'], *dargs], kwargs=dkargs)
             lis.append(t)
             t.start()
         for t in lis:
@@ -404,20 +440,20 @@ def run(module_list):
     for lib in module_list:
         cb_dargs, cb_dkargs = [], {}
         for handler in lib["_func"]:
+            handler["case"](*cb_dargs, **cb_dkargs)
             # 流程测试
-            if ("FLOW" == handler["env"]["type"]):
-                handler["case"](*cb_dargs, **cb_dkargs)
-                if type({}) == handler["env"]['cb']:
-                    cb_dkargs = handler["env"]['cb']
-                elif type(()) == handler["env"]['cb'] or type([]) == handler["env"]['cb']:
-                    cb_dargs = handler["env"]['cb']
+            if ("FLOW" != handler["env"]["type"]):
+                continue
+            cb_dargs, cb_dkargs = [], {}
+            for cb in (handler["env"].get('cb') or []):
+                cb_type = type(cb)
+                if type({}) == cb_type:
+                    cb_dkargs = {**cb_dkargs, **cb}
+                elif type(()) == cb_type or type([]) == cb_type:
+                    cb_dargs = cb_dargs + cb
                 else:
-                    cb_dargs = []
-                    cb_dargs.append(handler["env"]['cb'])
-                # print(handler["env"])
-            else:
-                handler["case"]()
-                # print(handler["env"])
+                    cb_dargs.append(cb)
+            # print(handler["env"])
     print(END_NOTE + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
 

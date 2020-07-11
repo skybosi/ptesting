@@ -6,10 +6,10 @@ def flow_test_1(n, m):
         pass
     rest = "flow:" + '1-3'
     print(rest)
-    return rest
+    return rest, {"flow":1}
 
 
-def flow_test_2(n):
+def flow_test_2(n, **kwargs):
     """
         flow; eg1:2-3-4-2; 1, 1, 'test'
     """
@@ -17,7 +17,7 @@ def flow_test_2(n):
         pass
     rest = n + " -> flow:2-3"
     print(rest)
-    return rest
+    return rest, {"flow":2}
 
 
 def flow_test_3(n):
@@ -28,4 +28,4 @@ def flow_test_3(n):
         pass
     rest = n + " -> flow:3-3; "
     print(rest)
-    return rest
+    return rest, {"flow":3}
